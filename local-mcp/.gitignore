@@ -1,0 +1,6 @@
+# secrets
+access-token.txt
+credentials.env
+# build output
+gs-bundle.ts
+.claude/
