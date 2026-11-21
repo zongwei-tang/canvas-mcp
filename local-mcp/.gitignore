@@ -1,0 +1,8 @@
+# secrets
+access-token.txt
+credentials.env
+# build output
+gs-bundle.ts
+.claude/
+# local state (grade snapshots for the daily check)
+.state/

@@ -1,0 +1,65 @@
+# Deploy the Gradescope MCP server (local-mcp/) to Railway with the Railway CLI.
+#
+# Why Actions instead of Railway's GitHub integration: the integration posts a commit status on every
+# push, and on a public repo that status shows the Railway project URL and service hostname to anyone.
+# Deploying with `railway up` from here posts nothing back to GitHub.
+#
+# Setup (once):
+#   - Railway: Project Settings > Tokens > create a project token for the production environment.
+#   - GitHub repo secrets: RAILWAY_TOKEN (that token) and RAILWAY_SERVICE_ID (the service's ID).
+#   - Railway: disconnect the GitHub repo from the service, so pushes no longer deploy (or post statuses).
+#
+# Workflow logs are public on a public repo: the CLI output goes to a file, and only a scrubbed tail
+# (no Railway URLs, hostnames or IDs) is printed if the deploy fails. Secrets are also masked by GitHub.
+name: Deploy to Railway
+
+on:
+  push:
+    branches: [feat/gradescope-submit]
+    paths:
+      - "local-mcp/**"
+      - "src/**"
+      - ".github/workflows/deploy-railway.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: railway-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    # Never run in other people's forks of this fork.
+    if: github.repository == 'zongwei-tang/canvas-mcp'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Deploy with the Railway CLI
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          RAILWAY_SERVICE_ID: ${{ secrets.RAILWAY_SERVICE_ID }}
+        run: |
+          if [ -z "$RAILWAY_TOKEN" ] || [ -z "$RAILWAY_SERVICE_ID" ]; then
+            echo "Missing RAILWAY_TOKEN or RAILWAY_SERVICE_ID repository secret." >&2
+            exit 1
+          fi
+          # --ci streams the build and exits non-zero if the build or deploy fails.
+          if npx -y @railway/cli@5.71.0 up --ci --service "$RAILWAY_SERVICE_ID" > "$RUNNER_TEMP/deploy.log" 2>&1; then
+            echo "Deployed."
+          else
+            echo "Deploy failed. Last lines of the log, with Railway URLs, hostnames and IDs removed:"
+            sed -E \
+              -e 's#https?://[^[:space:]]*railway\.(com|app)[^[:space:]]*#[railway-url]#g' \
+              -e 's#[A-Za-z0-9.-]+\.railway\.(app|internal)#[railway-host]#g' \
+              -e 's#[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}#[id]#g' \
+              "$RUNNER_TEMP/deploy.log" | tail -n 80
+            exit 1
+          fi
